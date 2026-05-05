@@ -1,0 +1,319 @@
+--  Optional: Clean old tables if they exist
+DROP TABLE IF EXISTS role_permissions CASCADE;
+DROP TABLE IF EXISTS permissions CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS roles CASCADE;
+
+-------------------------------------------------------
+-- 🔹 ROLES TABLE
+-------------------------------------------------------
+CREATE TABLE roles (
+  id SERIAL PRIMARY KEY,
+  description TEXT,
+  name VARCHAR(100) NOT NULL UNIQUE
+);
+
+-- Insert base roles
+INSERT INTO roles (name)
+VALUES 
+('Super Admin'),
+('Franchise Owner'),
+('Warehouse Staff'),
+('Branding Team'),
+('Accounting Team');
+
+
+-------------------------------------------------------
+--  USERS TABLE
+-------------------------------------------------------
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  phone VARCHAR(20),
+  password TEXT NOT NULL,
+  role VARCHAR(100) NOT NULL,  
+  status VARCHAR(50) DEFAULT 'active',  
+  is_temporary_password BOOLEAN DEFAULT FALSE,
+  password_changed_at TIMESTAMP,
+  otp VARCHAR(10),
+  otp_expiry TIMESTAMP,
+  company VARCHAR(150),         
+  location VARCHAR(150),       
+  member_since VARCHAR(50),     
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  phone VARCHAR(20),
+  password TEXT NOT NULL,
+  role VARCHAR(100) NOT NULL CHECK (
+    role IN (
+      'Super Admin',
+      'Franchise Owner',
+      'Warehouse Staff',
+      'Branding Team',
+      'Accounting Team',
+      'Driver',
+      'Customer'
+    )
+  ),
+  status VARCHAR(50) DEFAULT 'active',
+  is_temporary_password BOOLEAN DEFAULT FALSE,
+  password_changed_at TIMESTAMP,
+  otp VARCHAR(10),
+  otp_expiry TIMESTAMP,
+  company VARCHAR(150),
+  location VARCHAR(150),
+  member_since VARCHAR(50),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+
+
+-------------------------------------------------------
+-- PERMISSIONS TABLE
+-------------------------------------------------------
+CREATE TABLE permissions (
+  id SERIAL PRIMARY KEY,
+  action VARCHAR(100) NOT NULL,
+  module VARCHAR(100) NOT NULL,
+  description TEXT
+);
+
+-- Optional examples
+INSERT INTO permissions (action, module, description)
+VALUES
+('create', 'users', 'Create new users'),
+('read', 'users', 'View user list'),
+('update', 'users', 'Edit user details'),
+('delete', 'users', 'Delete users'),
+('create', 'roles', 'Create roles'),
+('manage', 'permissions', 'Manage permissions');
+
+
+-------------------------------------------------------
+-- ROLE_PERMISSIONS TABLE
+-------------------------------------------------------
+CREATE TABLE role_permissions (
+  id SERIAL PRIMARY KEY,
+  role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+  permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+  allowed BOOLEAN DEFAULT FALSE,
+  UNIQUE (role_id, permission_id)
+);
+
+-------------------------------------------------------
+-- SAMPLE DATA CONNECTIONS
+-------------------------------------------------------
+-- Give Super Admin full access
+INSERT INTO role_permissions (role_id, permission_id, allowed)
+SELECT 1, p.id, TRUE FROM permissions p;
+
+-- Franchise Owner: limited permissions
+INSERT INTO role_permissions (role_id, permission_id, allowed)
+SELECT 2, p.id, (p.module != 'permissions') FROM permissions p;
+
+--Driver
+CREATE TABLE drivers (
+  id SERIAL PRIMARY KEY,
+  driver_name VARCHAR(100) NOT NULL,
+  phone_number VARCHAR(20) NOT NULL,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  vehicle_id VARCHAR(50) NOT NULL,   
+  zone VARCHAR(100) NOT NULL,       
+  shift_start TIME NOT NULL,         
+  shift_end TIME NOT NULL,           
+  capacity INTEGER NOT NULL,         
+  created_at TIMESTAMP DEFAULT NOW(), 
+  status  VARCHAR(50) DEFAULT 'Available';
+);
+
+--profiles 
+CREATE TABLE profiles (
+  id uuid references auth.users(id) on delete cascade,
+  full_name text,
+  role text,
+  primary key (id)
+);
+
+-- Customer 
+CREATE TABLE customers (
+  id SERIAL PRIMARY KEY,
+  company_name VARCHAR(255) NOT NULL,
+  first_name VARCHAR(100) NOT NULL,
+  last_name VARCHAR(100) NOT NULL,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  alternateEmail1 VARCHAR(255),
+  alternateEmail2 VARCHAR(255),
+  phone VARCHAR(20),
+  alternatePhone VARCHAR(20),
+  zoneCity TEXT,
+  delivery_address TEXT,
+  company_logo TEXT,
+  custom_price_per_unit NUMERIC(10,2),
+  delivery_zone INTEGER REFERENCES drivers(id) ON DELETE SET NULL, 
+  industry VARCHAR(150),
+  total_orders INTEGER DEFAULT 0,
+  last_order TIMESTAMP,
+  status VARCHAR(50) DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+--Products
+CREATE TABLE products (
+  id SERIAL PRIMARY KEY,
+  product_name VARCHAR(255) NOT NULL,
+  product_type VARCHAR(100),
+  price_per_case NUMERIC(10,2),
+  price_per_unit NUMERIC(10,2),
+  min_qty INTEGER DEFAULT 1,
+  max_qty INTEGER,
+  discount NUMERIC(5,2) DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- order
+CREATE TABLE orders (
+  id SERIAL PRIMARY KEY,
+  order_name VARCHAR(100) NOT NULL, 
+  logo TEXT,
+  customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE,
+  product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+  po_number VARCHAR(100),
+  order_date TIMESTAMP DEFAULT NOW(),
+  delivery_date TIMESTAMP,
+  status VARCHAR(50) DEFAULT 'pending',
+  delivery_driver INTEGER REFERENCES drivers(id) ON DELETE SET NULL,
+  amount NUMERIC(12,2) DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+--order items
+CREATE TABLE order_items (
+  id SERIAL PRIMARY KEY,
+  order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
+  product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+  quantity INTEGER NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+--update
+CREATE OR REPLACE FUNCTION update_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Apply to all 4 tables
+CREATE TRIGGER update_customers_timestamp
+BEFORE UPDATE ON customers
+FOR EACH ROW EXECUTE FUNCTION update_timestamp();
+
+CREATE TRIGGER update_products_timestamp
+BEFORE UPDATE ON products
+FOR EACH ROW EXECUTE FUNCTION update_timestamp();
+
+CREATE TRIGGER update_orders_timestamp
+BEFORE UPDATE ON orders
+FOR EACH ROW EXECUTE FUNCTION update_timestamp();
+
+CREATE TRIGGER update_order_items_timestamp
+BEFORE UPDATE ON order_items
+FOR EACH ROW EXECUTE FUNCTION update_timestamp();
+
+
+    
+-- staff
+ CREATE TABLE staff (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, 
+  name VARCHAR(150) NOT NULL,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  status VARCHAR(50) DEFAULT 'active', 
+  last_login TIMESTAMP,
+  hire_date TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+-- Table: invoices
+create table public.invoices (
+  id bigint generated by default as identity primary key,
+  order_id integer references public.orders(id) on delete cascade,
+  customer_id integer references public.customers(id) on delete cascade,
+  po_number varchar,
+  amount numeric,
+  payment_status varchar default 'Pending',
+  file_url text,
+  uploaded_by uuid references auth.users(id),
+  upload_date timestamp default now(),
+  due_date timestamp,
+  payment_method varchar,
+  transaction_id varchar,
+  created_at timestamp default now(),
+  updated_at timestamp default now()
+);
+
+-- Index for faster lookups
+create index invoices_customer_id_idx on public.invoices(customer_id);
+create index invoices_order_id_idx on public.invoices(order_id);
+
+-- Table: invoice_items
+create table public.invoice_items (
+  id bigint generated by default as identity primary key,
+  invoice_id bigint references public.invoices(id) on delete cascade,
+  product_id integer references public.products(id) on delete set null,
+  product_name varchar,
+  quantity integer default 1,
+  unit_price numeric,
+  subtotal numeric generated always as (quantity * unit_price) stored
+);
+
+create index invoice_items_invoice_id_idx on public.invoice_items(invoice_id);
+
+-- Enable Row Level Security
+alter table public.invoices enable row level security;
+
+-- Allow authenticated users to read and insert invoices
+create policy "Allow read for all authenticated users"
+on public.invoices for select
+using (auth.role() = 'authenticated');
+
+create policy "Allow insert for authenticated users"
+on public.invoices for insert
+with check (auth.uid() = uploaded_by);
+
+create policy "Allow update by uploader"
+on public.invoices for update
+using (auth.uid() = uploaded_by);
+
+
+
+-- Storage policy for 'invoices' bucket
+insert into storage.buckets (id, name, public)
+values ('invoices', 'invoices', true)
+on conflict do nothing;
+
+-- Allow authenticated users to upload & read
+create policy "Allow authenticated uploads"
+on storage.objects for insert
+with check (bucket_id = 'invoices' and auth.role() = 'authenticated');
+
+create policy "Allow authenticated read"
+on storage.objects for select
+using (bucket_id = 'invoices' and auth.role() = 'authenticated');
+
+
+
+
+
+

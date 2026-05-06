@@ -128,7 +128,7 @@ function AddressAutocomplete({
 }: AddressAutocompleteProps) {
   return (
     <Autocomplete
-      apiKey="AIzaSyBtb6hSmwJ9_OznDC5e8BcZM90ms4WD_DE"
+      apiKey="AIzaSyBEQp-ZFMYZjsTNyximu2pAifQ9EWA4W3M"
       onPlaceSelected={(place: any) => {
         const address = place.formatted_address || place.name || "";
         onChange(address);

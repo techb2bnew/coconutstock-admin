@@ -1,0 +1,26 @@
+name: Deploy CoconutStock
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy on DigitalOcean server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USER }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          port: ${{ secrets.DO_PORT }}
+          script: |
+            cd /root/CoconutStock
+            git pull origin main
+            docker-compose down
+            docker-compose build --no-cache
+            docker-compose up -d --force-recreate
+            docker ps

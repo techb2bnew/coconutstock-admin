@@ -852,244 +852,275 @@ export default function CustomersPage() {
     return { exists: false, message: "" };
   };
 
-  const handleSave = async () => {
-    if (!validateForm()) return;
+ const getWelcomeEmailHtml = ({
+  name,
+  email,
+  password,
+  role,
+  companyName,
+  franchiseName,
+  deliveryZoneName,
+}: {
+  name: string;
+  email: string;
+  password: string;
+  role: string;
+  companyName?: string | null;
+  franchiseName?: string | null;
+  deliveryZoneName?: string | null;
+}) => {
+  const currentYear = new Date().getFullYear();
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to CoconutStock</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#f4f4f4;">
+    <tr>
+      <td align="center" style="padding:40px 20px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width:600px;background-color:#ffffff;border-radius:12px;overflow:hidden;">
+          <tr>
+            <td style="background:#86baff;padding:40px 30px;text-align:center;">
+              <h1 style="margin:0;font-size:32px;font-weight:700;color:#ffffff;">🌴 Welcome to CoconutStock!</h1>
+              <p style="margin:12px 0 0 0;font-size:18px;color:#ffffff;">Your account has been created</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:40px 30px;">
+              <p style="margin:0 0 20px 0;font-size:18px;color:#1f2937;">Hello <strong style="color:#00a1ff;">${name}</strong>,</p>
+              <p style="margin:0 0 30px 0;font-size:16px;color:#4b5563;">Your ${role} account has been successfully created. Below are your login credentials.</p>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#f9fafb;border-left:4px solid #00a1ff;border-radius:8px;">
+                <tr>
+                  <td style="padding:25px;">
+                    <h2 style="margin:0 0 20px 0;font-size:20px;color:#1f2937;">Login Credentials</h2>
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                      <tr><td style="padding:10px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;width:40%;">Email:</td><td style="padding:10px 0;border-bottom:1px solid #e5e7eb;color:#1f2937;font-size:14px;font-weight:600;">${email}</td></tr>
+                      <tr><td style="padding:10px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;">Role:</td><td style="padding:10px 0;border-bottom:1px solid #e5e7eb;color:#1f2937;font-size:14px;font-weight:600;">${role}</td></tr>
+                      ${companyName ? `<tr><td style="padding:10px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;">Company:</td><td style="padding:10px 0;border-bottom:1px solid #e5e7eb;color:#1f2937;font-size:14px;font-weight:600;">${companyName}</td></tr>` : ""}
+                      ${franchiseName ? `<tr><td style="padding:10px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;">Franchise:</td><td style="padding:10px 0;border-bottom:1px solid #e5e7eb;color:#1f2937;font-size:14px;font-weight:600;">${franchiseName}</td></tr>` : ""}
+                      ${deliveryZoneName ? `<tr><td style="padding:10px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;">Delivery Zone:</td><td style="padding:10px 0;border-bottom:1px solid #e5e7eb;color:#1f2937;font-size:14px;font-weight:600;">${deliveryZoneName}</td></tr>` : ""}
+                    </table>
+                    <div style="margin-top:20px;">
+                      <p style="margin:0 0 10px 0;color:#6b7280;font-size:14px;font-weight:600;">Temporary Password:</p>
+                      <div style="padding:15px;background:#ffffff;border-radius:8px;border:2px dashed #00a1ff;text-align:center;">
+                        <span style="font-family:'Courier New',monospace;font-size:20px;font-weight:700;color:#00a1ff;letter-spacing:2px;">${password}</span>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#fff3cd;border-left:4px solid #ffc107;border-radius:6px;margin:25px 0;">
+                <tr>
+                  <td style="padding:20px;">
+                    <p style="margin:0 0 8px 0;font-weight:600;color:#856404;font-size:15px;">⚠️ Important Security Notice</p>
+                    <p style="margin:0;color:#856404;font-size:14px;">This is a temporary password. Please change it immediately after your first login.</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#f9fafb;padding:25px 30px;text-align:center;border-top:1px solid #e5e7eb;">
+              <p style="margin:0;color:#6b7280;font-size:12px;">© ${currentYear} CoconutStock. All rights reserved.</p>
+              <p style="margin:4px 0 0 0;color:#9ca3af;font-size:11px;">This is an automated email. Please do not reply.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+};
 
-    // Check if email already exists (only for new customers)
-    if (!editCustomer) {
-      const emailCheck = await checkEmailExists(form.email);
-      if (emailCheck.exists) {
-        toast.error(emailCheck.message);
-        return;
-      }
-    } else {
-      // For edit, check if email exists in other records
-      const emailCheck = await checkEmailExists(form.email, editCustomer.id);
-      if (emailCheck.exists) {
-        toast.error(emailCheck.message);
-        return;
-      }
+const sendWelcomeEmail = async ({ to, name, email, password, role, companyName, franchiseName, deliveryZoneName }: {
+  to: string; name: string; email: string; password: string; role: string;
+  companyName?: string | null; franchiseName?: string | null; deliveryZoneName?: string | null;
+}) => {
+  try {
+    const res = await fetch('/api/send-email', {   // ← Next.js API route
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to, name, email, password, role, companyName, franchiseName, deliveryZoneName }),
+    });
+    const result = await res.json();
+    if (!res.ok) console.error('Email error:', result);
+    else console.log('✅ Email sent:', result.id);
+  } catch (err) {
+    console.error('Email error:', err);
+  }
+};
+
+const handleSave = async () => {
+  if (!validateForm()) return;
+
+  if (!editCustomer) {
+    const emailCheck = await checkEmailExists(form.email);
+    if (emailCheck.exists) {
+      toast.error(emailCheck.message);
+      return;
     }
-    const normalizeUuidOrNull = (v: any) => {
-      const s = String(v ?? "").trim();
-      if (!s || s === "—") return null;
-
-      const uuidRegex =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-      return uuidRegex.test(s) ? s : null;
-    };
-
-    const normalizeTextOrNull = (v: any) => {
-      const s = String(v ?? "").trim();
-      if (!s || s === "—") return null;
-      return s;
-    };
-
-    setLoading(true);
-
-    const tempPassword: string = generateTemporaryPassword();
-
-    // Always read from localStorage (source of truth set by AdminLayout)
-    const isSuperAdmin =
-      typeof window !== "undefined"
-        ? localStorage.getItem("is_super_admin") === "true"
-        : false;
-    const currentFranchiseId =
-      typeof window !== "undefined"
-        ? localStorage.getItem("current_franchise_id")
-        : null;
-    const currentStaffEmail =
-      typeof window !== "undefined"
-        ? localStorage.getItem("current_staff_email")
-        : null;
-
-    // Use the selected company's franchise_id if available, otherwise fall back to current logic
-    // If company has franchise_id, use it; otherwise use Super Admin logic (null) or current franchise
-    let customerFranchiseId: string | null = null;
-    if (form.companyFranchiseId) {
-      // Company has a franchise_id, use it
-      customerFranchiseId = form.companyFranchiseId;
-    } else if (isSuperAdmin) {
-      // Super Admin: no franchise_id
-      customerFranchiseId = null;
-    } else {
-      // Franchise user: use their franchise_id
-      customerFranchiseId = currentFranchiseId || null;
+  } else {
+    const emailCheck = await checkEmailExists(form.email, editCustomer.id);
+    if (emailCheck.exists) {
+      toast.error(emailCheck.message);
+      return;
     }
+  }
 
-    const data = {
-      company_name: form.company,
-      first_name: form.firstName,
-      last_name: form.lastName,
-      Customer_title: form.Customer_title,
-      email: form.email,
-      phone: form.phone,
-      delivery_address: form.address,
-      // delivery_zone: form.deliveryZone,
-      // delivery_zone_name: form.deliveryZoneName || null,
-      delivery_zone: normalizeUuidOrNull(form.deliveryZone),
-      delivery_zone_name: normalizeTextOrNull(form.deliveryZoneName),
+  const normalizeUuidOrNull = (v: any) => {
+    const s = String(v ?? "").trim();
+    if (!s || s === "—") return null;
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(s) ? s : null;
+  };
 
-      zoneCity: form.zoneCity || null,
-      created_by_email: isSuperAdmin ? null : currentStaffEmail || null,
-      alternateEmail1: form.alternateEmail1 || null,
-      alternateEmail2: form.alternateEmail2 || null,
-      alternatePhone: form.alternatePhone || null,
-      company_id: form.companyId || null, // Save company_id instead of companyLogo
-      notes: form.notes || null,
-      password: tempPassword,
-      status: "active",
-      franchise_id: customerFranchiseId,
-      account_status: form.account_status,
-    };
+  const normalizeTextOrNull = (v: any) => {
+    const s = String(v ?? "").trim();
+    if (!s || s === "—") return null;
+    return s;
+  };
 
-    let error;
-    if (editCustomer) {
-      const { error: updateError } = await supabase
-        .from("customers")
-        .update(data)
-        .eq("id", editCustomer.id);
-      error = updateError;
+  setLoading(true);
+
+  const tempPassword: string = generateTemporaryPassword();
+
+  const isSuperAdmin =
+    typeof window !== "undefined"
+      ? localStorage.getItem("is_super_admin") === "true"
+      : false;
+  const currentFranchiseId =
+    typeof window !== "undefined"
+      ? localStorage.getItem("current_franchise_id")
+      : null;
+  const currentStaffEmail =
+    typeof window !== "undefined"
+      ? localStorage.getItem("current_staff_email")
+      : null;
+
+  let customerFranchiseId: string | null = null;
+  if (form.companyFranchiseId) {
+    customerFranchiseId = form.companyFranchiseId;
+  } else if (isSuperAdmin) {
+    customerFranchiseId = null;
+  } else {
+    customerFranchiseId = currentFranchiseId || null;
+  }
+
+  const data = {
+    company_name: form.company,
+    first_name: form.firstName,
+    last_name: form.lastName,
+    Customer_title: form.Customer_title,
+    email: form.email,
+    phone: form.phone,
+    delivery_address: form.address,
+    delivery_zone: normalizeUuidOrNull(form.deliveryZone),
+    delivery_zone_name: normalizeTextOrNull(form.deliveryZoneName),
+    zoneCity: form.zoneCity || null,
+    created_by_email: isSuperAdmin ? null : currentStaffEmail || null,
+    alternateEmail1: form.alternateEmail1 || null,
+    alternateEmail2: form.alternateEmail2 || null,
+    alternatePhone: form.alternatePhone || null,
+    company_id: form.companyId || null,
+    notes: form.notes || null,
+    password: tempPassword,
+    status: "active",
+    franchise_id: customerFranchiseId,
+    account_status: form.account_status,
+  };
+
+  let error;
+
+  if (editCustomer) {
+    // ✅ Edit — sirf update
+    const { error: updateError } = await supabase
+      .from("customers")
+      .update(data)
+      .eq("id", editCustomer.id);
+    error = updateError;
+  } else {
+    // ✅ New customer — insert karo
+    const { error: insertError } = await supabase
+      .from("customers")
+      .insert(data);
+
+    if (insertError) {
+      error = insertError;
     } else {
-      // Save current session tokens to restore after signUp
-      const { data: currentSession } = await supabase.auth.getSession();
-      const savedAccessToken = currentSession?.session?.access_token;
-      const savedRefreshToken = currentSession?.session?.refresh_token;
+      // ✅ Auth user banao — server side, confirm email nahi jayegi
+      fetch("/api/create-auth-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: form.email,
+          password: tempPassword,
+          name: `${form.firstName} ${form.lastName}`,
+          role: "Customer",
+        }),
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.error) console.error("Auth user error:", d.error);
+          else console.log("✅ Auth user created:", d.userId, d.action);
+        })
+        .catch((e) => console.error("Auth user fetch error:", e));
 
-      // First, insert into customers table (tempPassword already generated above)
-      const { error: insertError } = await supabase
-        .from("customers")
-        .insert(data);
-
-      if (insertError) {
-        error = insertError;
-      } else {
-        // Try to create auth account (non-blocking, customer record already created)
-        const loginUrl = `${window.location.origin}/login`;
-
-        // Create auth account - restore session immediately after
-        try {
-          const { data: authData, error: authError } =
-            await supabase.auth.signUp({
-              email: form.email,
-              password: tempPassword,
-              options: {
-                emailRedirectTo: loginUrl,
-                data: {
-                  name: `${form.firstName} ${form.lastName}`,
-                  role: "Customer",
-                  is_temporary_password: true,
-                },
-              },
-            });
-
-          if (authError) {
-            setLoading(false);
-            console.log(
-              "Auth account creation skipped (may already exist or failed):",
-              authError.message,
-            );
-          } else if (authData.user) {
-            console.log("Customer auth account created successfully");
-          }
-        } catch (authErr) {
-          setLoading(false);
-          console.error("Auth creation error:", authErr);
-        }
-
-        // CRITICAL: Immediately restore the admin's session
-        if (savedAccessToken && savedRefreshToken) {
-          try {
-            await supabase.auth.setSession({
-              access_token: savedAccessToken,
-              refresh_token: savedRefreshToken,
-            });
-            console.log("Admin session restored successfully");
-          } catch (restoreErr) {
-            console.error("Session restore error:", restoreErr);
-            // If restore fails, try to get session again
-            const { data: newSession } = await supabase.auth.getSession();
-            if (!newSession?.session && savedAccessToken && savedRefreshToken) {
-              // Last attempt to restore
-              await supabase.auth.setSession({
-                access_token: savedAccessToken,
-                refresh_token: savedRefreshToken,
-              });
-            }
-          }
-        }
-
-        // Send welcome email (non-blocking)
-        let franchiseName: string | null = null;
-        if (form.companyFranchiseId) {
-          const { data: f } = await supabase
-            .from("franchises")
-            .select("franchise_name")
-            .eq("id", form.companyFranchiseId)
-            .maybeSingle();
-          franchiseName = f?.franchise_name || null;
-        }
-        supabase.functions
-          .invoke("clever-handler", {
-            body: {
-              to: form.email,
-              name: `${form.firstName} ${form.lastName}`,
-              email: form.email,
-              password: tempPassword,
-              role: "Customer",
-              loginUrl: loginUrl,
-              companyName: form.company,
-              franchiseName: franchiseName || null,
-              deliveryZoneName: form.deliveryZoneName || null,
-            },
-          })
-          .then(({ error: emailError }) => {
-            if (emailError) {
-              console.log(
-                "Email function not available (this is okay):",
-                emailError.message,
-              );
-            } else {
-              console.log("Email sent successfully");
-            }
-          })
-          .catch((err) => {
-            console.log("Email function not configured (this is okay):", err);
-          });
+      // ✅ Franchise name fetch karo
+      let franchiseName: string | null = null;
+      if (form.companyFranchiseId) {
+        const { data: f } = await supabase
+          .from("franchises")
+          .select("franchise_name")
+          .eq("id", form.companyFranchiseId)
+          .maybeSingle();
+        franchiseName = f?.franchise_name || null;
       }
+
+      // ✅ Welcome email bhejo with password
+      sendWelcomeEmail({
+        to: form.email,
+        name: `${form.firstName} ${form.lastName}`,
+        email: form.email,
+        password: tempPassword,
+        role: "Customer",
+        companyName: form.company || null,
+        franchiseName: franchiseName || null,
+        deliveryZoneName: form.deliveryZoneName || null,
+      });
     }
+  }
 
-    if (!error) {
-      setOpen(false);
-      resetForm();
-      setLoading(false);
-
-      // Refresh the customer list from API
-      await fetchData();
-      toast.success(
-        editCustomer
-          ? "Customer updated successfully!"
-          : "Customer created successfully!",
+  if (!error) {
+    setOpen(false);
+    resetForm();
+    setLoading(false);
+    await fetchData();
+    toast.success(
+      editCustomer
+        ? "Customer updated successfully!"
+        : "Customer created successfully!",
+    );
+  } else {
+    console.error("Error saving customer:", error);
+    if (error.code === "23505") {
+      toast.error(
+        "This email address is already registered. Please use a different email.",
       );
     } else {
-      console.error("Error saving customer:", error);
-
-      // Check for duplicate email error
-      if (error.code === "23505") {
-        toast.error(
-          "This email address is already registered. Please use a different email.",
-        );
-      } else {
-        toast.error(
-          editCustomer
-            ? "Failed to update customer. Please try again."
-            : "Failed to create customer. Please try again.",
-        );
-        setLoading(false);
-      }
+      toast.error(
+        editCustomer
+          ? "Failed to update customer. Please try again."
+          : "Failed to create customer. Please try again.",
+      );
     }
-  };
+    setLoading(false);
+  }
+};
 
   const handleEdit = async (cust: Customer) => {
     setEditCustomer(cust);

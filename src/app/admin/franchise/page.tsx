@@ -503,202 +503,155 @@ export default function FranchisePage() {
     return { exists: false, message: '' }
   }
 
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
+const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+  e.preventDefault()
 
-    if (!validateForm()) return
+  if (!validateForm()) return
 
-    // Check if email already exists (only for new franchises)
-    if (!editingFranchise) {
-      const emailCheck = await checkEmailExists(formState.ownerEmail)
-      if (emailCheck.exists) {
-        toast.error(emailCheck.message)
-        return
-      }
-    } else {
-      // For edit, check if email exists in other records
-      const emailCheck = await checkEmailExists(formState.ownerEmail, editingFranchise.id)
-      if (emailCheck.exists) {
-        toast.error(emailCheck.message)
-        return
-      }
+  if (!editingFranchise) {
+    const emailCheck = await checkEmailExists(formState.ownerEmail)
+    if (emailCheck.exists) {
+      toast.error(emailCheck.message)
+      return
     }
-
-    setIsSubmitting(true)
-
-    try {
-      // Upload logo if preview exists
-      let logoUrl = null
-      if (logoPreview && logoPreview.startsWith('data:')) {
-        try {
-          const res = await fetch(logoPreview)
-          const blob = await res.blob()
-          const file = new File([blob], `logo-${Date.now()}.png`, { type: blob.type })
-          logoUrl = await uploadLogoFile(file)
-          if (!logoUrl) {
-            console.warn('Logo upload failed, continuing without logo')
-          }
-        } catch (err) {
-          console.error('Error converting logo preview to file:', err)
-        }
-      } else if (formState.logo && !formState.logo.startsWith('data:')) {
-        // If logo is already a URL (from edit), use it
-        logoUrl = formState.logo
-      }
-
-      const payload = {
-        franchise_name: formState.name.trim(),
-        location_zone: formState.zone.trim(),
-        address: formState.address.trim(),
-        owner_first_name: formState.ownerFirstName.trim(),
-        owner_last_name: formState.ownerLastName.trim(),
-        owner_email: formState.ownerEmail.trim(),
-        owner_phone: formState.ownerPhone.trim(),
-        logo: logoUrl,
-        contract_start_date: formState.contractStartDate ? formState.contractStartDate : null,
-      }
-
-      if (editingFranchise) {
-          const { error } = await supabase
-            .from("franchises")
-            .update({
-              ...payload,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", editingFranchise.id)
-
-          if (error) {
-            console.error("Error updating franchise:", error)
-            toast.error("Failed to update franchise. Please try again.")
-            return
-          }
-
-          setFranchises((prev) =>
-            prev.map((f) =>
-              f.id === editingFranchise.id
-                ? {
-                    ...f,
-                    ...payload,
-                    updated_at: new Date().toISOString(),
-                  }
-                : f,
-            ),
-          )
-          toast.success("Franchise updated successfully.")
-        } else {
-          // Save current session before creating new user
-          const { data: currentSessionData, error: currentSessionError } = await supabase.auth.getSession();
-          if (currentSessionError) {
-            console.error('Error getting current session:', currentSessionError);
-          }
-          const currentAccessToken = currentSessionData?.session?.access_token;
-          const currentRefreshToken = currentSessionData?.session?.refresh_token;
-
-          // Create franchise owner auth user with temporary password
-          const tempPassword = generateTemporaryPassword()
-
-          // Add password and status to payload for new franchise
-          const franchisePayload = {
-            ...payload,
-            password: tempPassword,
-            status: 'active', // Set status to active by default
-          }
-
-          // Insert into franchises table first
-          const { data: insertedFranchiseData, error: insertError } = await supabase
-            .from("franchises")
-            .insert(franchisePayload)
-            .select(
-              "id, franchise_name, location_zone, address, owner_first_name, owner_last_name, owner_email, owner_phone, contract_start_date, created_at, updated_at, status",
-            )
-            .single()
-
-          if (insertError) {
-            console.error("Error creating franchise:", insertError)
-            toast.error("Failed to create franchise. Please try again.")
-            return
-          }
-
-          // Create user in Supabase Auth
-          const { data: authData, error: authError } = await supabase.auth.signUp({
-            email: formState.ownerEmail,
-            password: tempPassword,
-            options: {
-              emailRedirectTo: `${window.location.origin}/login`,
-              data: {
-                role: "franchise_owner",
-                franchise_name: formState.name,
-              },
-            },
-          })
-
-          if (authError) {
-            console.error("Auth error (franchise):", authError)
-            // If auth fails, delete the franchise record to keep data consistent
-            await supabase.from("franchises").delete().eq("id", insertedFranchiseData.id);
-            toast.error( 
-              `  ${authError.message}`,
-            )
-            return
-          }
-
-          if (!authData.user) {
-            console.error("Error: User account was not created")
-            await supabase.from("franchises").delete().eq("id", insertedFranchiseData.id);
-            toast.error("Franchise user account was not created. Please try again.")
-            return
-          }
-
-          // Restore original session immediately after signUp
-          if (currentAccessToken && currentRefreshToken) {
-            const { error: restoreError } = await supabase.auth.setSession({
-              access_token: currentAccessToken,
-              refresh_token: currentRefreshToken,
-            });
-            if (restoreError) {
-              console.error('Error restoring session:', restoreError);
-            }
-          }
-
-          if (insertedFranchiseData) {
-            setFranchises((prev) => [insertedFranchiseData as Franchise, ...prev])
-            toast.success("Franchise created successfully.")
-          }
-
-          // Send temporary credentials via Edge Function (non-blocking)
-          const loginUrl = `${window.location.origin}/login`
-          supabase.functions
-            .invoke("clever-handler", {
-              body: {
-                to: formState.ownerEmail,
-                name: `${formState.ownerFirstName} ${formState.ownerLastName}`.trim(),
-                email: formState.ownerEmail,
-                password: tempPassword,
-                role: "Franchise",
-                loginUrl,
-                franchiseName: formState.name,
-                contractStartDate: formState.contractStartDate || null,
-              },
-            })
-            .then(({ error: emailError }) => {
-              if (emailError) {
-                console.log("Franchise email function error (non-blocking):", emailError.message)
-              }
-            })
-            .catch((err) => {
-              console.log("Franchise email function not configured (non-blocking):", err)
-            })
-        }
-
-      setIsDialogOpen(false)
-      resetForm()
-    } catch (err) {
-      console.error("Unexpected error saving franchise:", err)
-      toast.error("Something went wrong. Please try again.")
-    } finally {
-      setIsSubmitting(false)
+  } else {
+    const emailCheck = await checkEmailExists(formState.ownerEmail, editingFranchise.id)
+    if (emailCheck.exists) {
+      toast.error(emailCheck.message)
+      return
     }
   }
+
+  setIsSubmitting(true)
+
+  try {
+    let logoUrl = null
+    if (logoPreview && logoPreview.startsWith('data:')) {
+      try {
+        const res = await fetch(logoPreview)
+        const blob = await res.blob()
+        const file = new File([blob], `logo-${Date.now()}.png`, { type: blob.type })
+        logoUrl = await uploadLogoFile(file)
+        if (!logoUrl) console.warn('Logo upload failed, continuing without logo')
+      } catch (err) {
+        console.error('Error converting logo preview to file:', err)
+      }
+    } else if (formState.logo && !formState.logo.startsWith('data:')) {
+      logoUrl = formState.logo
+    }
+
+    const payload = {
+      franchise_name: formState.name.trim(),
+      location_zone: formState.zone.trim(),
+      address: formState.address.trim(),
+      owner_first_name: formState.ownerFirstName.trim(),
+      owner_last_name: formState.ownerLastName.trim(),
+      owner_email: formState.ownerEmail.trim(),
+      owner_phone: formState.ownerPhone.trim(),
+      logo: logoUrl,
+      contract_start_date: formState.contractStartDate ? formState.contractStartDate : null,
+    }
+
+    if (editingFranchise) {
+      const { error } = await supabase
+        .from("franchises")
+        .update({ ...payload, updated_at: new Date().toISOString() })
+        .eq("id", editingFranchise.id)
+
+      if (error) {
+        console.error("Error updating franchise:", error)
+        toast.error("Failed to update franchise. Please try again.")
+        return
+      }
+
+      setFranchises((prev) =>
+        prev.map((f) =>
+          f.id === editingFranchise.id
+            ? { ...f, ...payload, updated_at: new Date().toISOString() }
+            : f,
+        ),
+      )
+      toast.success("Franchise updated successfully.")
+
+    } else {
+      const tempPassword = generateTemporaryPassword()
+
+      const franchisePayload = {
+        ...payload,
+        password: tempPassword,
+        status: 'active',
+      }
+
+      // ✅ Insert franchise
+      const { data: insertedFranchiseData, error: insertError } = await supabase
+        .from("franchises")
+        .insert(franchisePayload)
+        .select(
+          "id, franchise_name, location_zone, address, owner_first_name, owner_last_name, owner_email, owner_phone, contract_start_date, created_at, updated_at, status",
+        )
+        .single()
+
+      if (insertError) {
+        console.error("Error creating franchise:", insertError)
+        toast.error("Failed to create franchise. Please try again.")
+        return
+      }
+
+      // ✅ Auth user — same as customer (server-side, no session issue, email auto-confirmed)
+      fetch("/api/create-auth-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: formState.ownerEmail,
+          password: tempPassword,
+          name: `${formState.ownerFirstName} ${formState.ownerLastName}`.trim(),
+          role: "franchise_owner",
+        }),
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.error) console.error("Auth user error:", d.error)
+          else console.log("✅ Auth user created:", d.userId, d.action)
+        })
+        .catch((e) => console.error("Auth user fetch error:", e))
+
+      if (insertedFranchiseData) {
+        setFranchises((prev) => [insertedFranchiseData as Franchise, ...prev])
+        toast.success("Franchise created successfully.")
+      }
+
+      // ✅ Welcome email — same as customer
+      fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: formState.ownerEmail,
+          name: `${formState.ownerFirstName} ${formState.ownerLastName}`.trim(),
+          email: formState.ownerEmail,
+          password: tempPassword,
+          role: "Franchise Owner",
+          companyName: null,
+          franchiseName: formState.name,
+          deliveryZoneName: null,
+        }),
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.error) console.error('Franchise email error:', d.error)
+          else console.log('✅ Franchise email sent:', d.id)
+        })
+        .catch((err) => console.error('Franchise email fetch error:', err))
+    }
+
+    setIsDialogOpen(false)
+    resetForm()
+  } catch (err) {
+    console.error("Unexpected error saving franchise:", err)
+    toast.error("Something went wrong. Please try again.")
+  } finally {
+    setIsSubmitting(false)
+  }
+}
 
   const handleStatusChange = (franchise: Franchise, status: 'active' | 'inactive') => {
     setFranchiseToChangeStatus(franchise)

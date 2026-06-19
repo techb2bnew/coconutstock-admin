@@ -83,70 +83,43 @@ export default function ForgotPasswordPage() {
     return { data: null, error: { message: 'Request failed after multiple attempts' } }
   }
 
-  const handleSendOTP = async () => {
-    if (!validateForm()) return
+ const handleSendOTP = async () => {
+  if (!validateForm()) return
 
-    setIsLoading(true)
-    setSuccessMessage('')
-    setErrors({})
+  setIsLoading(true)
+  setSuccessMessage('')
+  setErrors({})
 
-    try {
-      // Use retry logic with exponential backoff
-      const { data, error } = await sendOTPWithRetry(2, 2000)
+  try {
+    const res = await fetch('/api/send-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    })
 
-      if (error) {
-        console.error('Send OTP error:', error)
-        console.error('Error details:', {
-          message: error.message,
-          status: error.status,
-          name: error.name,
-          code: (error as any).code
-        })
-        
-        // Handle specific error codes
-        if (error.message?.includes('rate limit') || error.message?.includes('too many')) {
-          setErrors({ email: 'Too many requests. Please wait a few minutes and try again.' })
-        } else if (error.message?.includes('not found') || error.message?.includes('user') || error.message?.includes('email')) {
-          setErrors({ email: 'No account found with this email address.' })
-        } else if (error.message?.includes('504') || error.message?.includes('timeout') || error.message?.includes('retry') || error.message?.includes('Gateway')) {
-          setErrors({ email: 'Email service timeout. Please check: 1) SMTP settings are correct, 2) Port is 587, 3) Gmail App Password is used. The OTP may still be sent - check your email.' })
-        } else if (error.message?.includes('SMTP') || error.message?.includes('smtp') || error.message?.includes('mail')) {
-          setErrors({ email: 'SMTP configuration error. Please check your SMTP settings in Supabase dashboard.' })
-        } else {
-          setErrors({ email: error.message || 'Failed to send OTP. Please check console for details.' })
-        }
-        setIsLoading(false)
-        return
-      }
+    const data = await res.json()
 
-      // Store email in sessionStorage for OTP page
-      if (typeof window !== 'undefined') {
-        sessionStorage.setItem('reset_password_email', email)
-      }
-
-      // Success - redirect to OTP page
-      setSuccessMessage('OTP has been sent to your email! Redirecting...')
-      setTimeout(() => {
-        router.push('/otp')
-      }, 1500)
-    } catch (err: any) {
-      console.error('Forgot password error:', err)
-      console.error('Error details:', {
-        message: err.message,
-        name: err.name,
-        stack: err.stack
-      })
-      setIsLoading(false)
-      
-      if (err.message?.includes('timeout') || err.message?.includes('504') || err.message?.includes('retry') || err.message?.includes('Gateway')) {
-        setErrors({ email: 'Email service timeout. Please verify: 1) SMTP toggle is ON, 2) Port is 587, 3) Gmail App Password is correct. Check Supabase logs for details.' })
-      } else if (err.message?.includes('network') || err.message?.includes('fetch')) {
-        setErrors({ email: 'Network error. Please check your internet connection and try again.' })
-      } else {
-        setErrors({ email: err.message || 'Something went wrong. Please check browser console and Supabase logs for details.' })
-      }
+    if (!res.ok) {
+      setErrors({ email: data.error || 'Failed to send OTP. Please try again.' })
+      return
     }
+
+    // ✅ Email store karo OTP page ke liye
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('reset_password_email', email)
+    }
+
+    setSuccessMessage('OTP has been sent to your email! Redirecting...')
+    setTimeout(() => {
+      router.push('/otp')
+    }, 1500)
+
+  } catch (err: any) {
+    setErrors({ email: 'Network error. Please try again.' })
+  } finally {
+    setIsLoading(false)
   }
+}
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()

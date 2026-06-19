@@ -423,277 +423,155 @@ export default function DriverManagementPage() {
   }
 
   async function handleSave(e?: React.SyntheticEvent) {
-    if (e) e.preventDefault()
+  if (e) e.preventDefault()
 
-    if (!validateForm()) {
+  if (!validateForm()) return
+
+  if (editing) {
+    const emailCheck = await checkEmailExists(form.email, editing.id)
+    if (emailCheck.exists) {
+      toast.error(emailCheck.message)
       return
     }
-
-    // Check if email already exists
-    if (editing) {
-      // For edit, check if email exists in other records
-      const emailCheck = await checkEmailExists(form.email, editing.id)
-      if (emailCheck.exists) {
-        toast.error(emailCheck.message)
-        return
-      }
-    } else {
-      // For new driver, check if email exists in any table
-      const emailCheck = await checkEmailExists(form.email)
-      if (emailCheck.exists) {
-        toast.error(emailCheck.message)
-        return
-      }
-    }
-
-    setSaving(true)
-    try {
-      // Always read from localStorage (source of truth set by AdminLayout)
-      const currentFranchiseId = typeof window !== 'undefined' 
-        ? localStorage.getItem('current_franchise_id') 
-        : null
-
-      const isSuperAdmin = typeof window !== 'undefined' 
-        ? localStorage.getItem('is_super_admin') === 'true'
-        : false
-
-      // Build payload - only include password for new drivers, not when editing
-      // Super Admin: franchise_id from form dropdown; Franchise user: from current_franchise_id
-      const payload: any = {
-        driver_name: form.driver_name,
-        phone_number: form.phone_number || null,
-        email: form.email || null,
-        vehicle_id: form.vehicle_id?.trim() || '',
-        shift_start: form.shift_start?.length === 5 ? `${form.shift_start}:00` : form.shift_start,
-        shift_end: form.shift_end?.length === 5 ? `${form.shift_end}:00` : form.shift_end,
-        // Status handling:
-        // - New driver: always "Available"
-        // - Edit driver: keep existing status, but if it's "Assigned" keep sending "Assigned"
-        status: editing ? (editing.status || 'Available') : 'Available',
-        role: DRIVER_ROLE,
-        franchise_id: isSuperAdmin ? (form.franchise_id || null) : (currentFranchiseId || null),
-      }
-
-      // Only generate and add password for new drivers, not when editing
-      let tempPassword: string | null = null
-      if (!editing) {
-        tempPassword = generateTemporaryPassword()
-        payload.password = tempPassword
-      }
-
-      if (editing) {
-        const { error } = await supabase
-          .from('drivers')
-          .update(payload)
-          .eq('id', editing.id)
-        if (error) {
-          // Check for duplicate email error
-          if (error.code === '23505') {
-            toast.error('This email address is already registered. Please use a different email.')
-            setSaving(false)
-            return
-          }
-          throw error
-        }
-      } else {
-        // Save current session before creating new user
-        const { data: currentSessionData, error: currentSessionError } = await supabase.auth.getSession();
-        if (currentSessionError) {
-          console.error('Error getting current session:', currentSessionError);
-        }
-        const currentAccessToken = currentSessionData?.session?.access_token;
-        const currentRefreshToken = currentSessionData?.session?.refresh_token;
-
-        // Get current identifiers for creator tracking
-        const isSuperAdmin = typeof window !== 'undefined' 
-          ? localStorage.getItem('is_super_admin') === 'true'
-          : false
-        const currentStaffEmail = typeof window !== 'undefined' 
-          ? localStorage.getItem('current_staff_email') 
-          : null
-
-        // Insert into drivers table first
-        // IMPORTANT: Explicitly include password in insert payload to ensure it's saved correctly
-        const insertPayload = { 
-          ...payload,
-          password: tempPassword, // Explicitly set password to ensure it's saved correctly
-          created_by_email: isSuperAdmin ? null : (currentStaffEmail || null),
-          franchise_id: payload.franchise_id
-        }
-        
-        console.log('Inserting driver with password:', tempPassword, 'Email:', form.email)
-        
-        const { data: insertedDriverData, error: insertError } = await supabase
-          .from('drivers')
-          .insert([insertPayload])
-          .select()
-          .single()
-
-        if (insertError) {
-          console.error('Driver insert error:', insertError);
-          // Check for duplicate email error
-          if (insertError.code === '23505') {
-            toast.error('This email address is already registered. Please use a different email.')
-            setSaving(false)
-            return
-          }
-          throw insertError;
-        }
-
-        // Create user in Supabase Auth
-        // IMPORTANT: If email confirmation is enabled in Supabase Auth settings,
-        // the driver will need to confirm their email before they can login.
-        // To disable email confirmation, go to Supabase Dashboard > Authentication > Settings
-        // and disable "Enable email confirmations"
-        if (!tempPassword) {
-          console.error('Error: tempPassword is null for new driver')
-          await supabase.from('drivers').delete().eq('id', insertedDriverData.id)
-          toast.error('Failed to generate password. Please try again.')
-          setSaving(false)
-          return
-        }
-
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: form.email,
-          password: tempPassword,
-          options: {
-            emailRedirectTo: `${window.location.origin}/login`,
-            data: {
-              name: form.driver_name,
-              role: DRIVER_ROLE,
-              is_temporary_password: true
-            }
-          }
-        })
-
-        if (authError) {
-          console.error('Auth error:', authError);
-          
-          // If auth fails, delete the driver record to keep data consistent
-          await supabase.from('drivers').delete().eq('id', insertedDriverData.id);
-          
-          // Check for user already exists error - multiple ways to check
-          const errorMessage = authError.message || '';
-          const errorCode = (authError as any).code || (authError as any).error?.code || '';
-          
-          // Also check the stringified error for code
-          const errorString = JSON.stringify(authError);
-          const hasUserExistsCode = errorString.includes('user_already_exists') || 
-                                   errorString.includes('User already registered');
-          
-          // Determine the error message to show
-          let toastMessage = '';
-          if (errorCode === 'user_already_exists' || 
-              errorMessage.includes('User already registered') || 
-              errorMessage.includes('user_already_exists') ||
-              errorMessage.toLowerCase().includes('already registered') ||
-              errorMessage.toLowerCase().includes('already exists') ||
-              hasUserExistsCode) {
-            toastMessage = 'This email address is already registered. Please use a different email.';
-          } else if (errorMessage) {
-            toastMessage = errorMessage;
-          } else {
-            toastMessage = 'Failed to create user account. Please try again.';
-          }
-          
-          // Show toast and return early
-          toast.error(toastMessage);
-          setSaving(false);
-          return;
-        } else if (!authData.user) {
-          console.error('Error: User account was not created');
-          await supabase.from('drivers').delete().eq('id', insertedDriverData.id);
-          toast.error('Failed to create user account. Please try again.')
-          setSaving(false)
-          return
-        } else {
-          // Restore original session immediately after signUp
-          if (currentAccessToken && currentRefreshToken) {
-            const { error: restoreError } = await supabase.auth.setSession({
-              access_token: currentAccessToken,
-              refresh_token: currentRefreshToken,
-            });
-            if (restoreError) {
-              console.error('Error restoring session:', restoreError);
-            }
-          }
-
-          // Send email via Supabase Edge Function (non-blocking)
-          const loginUrl = `${window.location.origin}/login`
-          
-          // Log password for debugging (remove in production)
-          console.log('Driver created - Password:', tempPassword, 'Email:', form.email)
-          
-          supabase.functions.invoke('clever-handler', {
-            body: {
-              to: form.email,
-              name: form.driver_name,
-              email: form.email,
-              password: tempPassword,
-              role: DRIVER_ROLE,
-              loginUrl: loginUrl,
-              vehicleId: form.vehicle_id
-            }
-          }).then(({ error: emailError }) => {
-            if (emailError) {
-              console.log('Email function not available (this is okay):', emailError.message)
-            } else {
-              console.log('Email sent successfully with password:', tempPassword)
-            }
-          }).catch((err) => {
-            // CORS or function not found - this is expected if function doesn't exist
-            console.log('Email function not configured (this is okay):', err)
-          })
-          
-          // IMPORTANT: Check Supabase Auth Settings
-          // If drivers cannot login, check:
-          // 1. Supabase Dashboard > Authentication > Settings > "Enable email confirmations"
-          //    - If enabled, driver must confirm email before login
-          //    - To disable: Turn off "Enable email confirmations"
-          // 2. Verify auth account was created: Check auth.users table in Supabase
-          // 3. Verify password matches: Check drivers.password matches email password
-          console.log('Driver auth account created. If login fails, check email confirmation settings in Supabase.')
-        }
-      }
-
-      setOpen(false)
-      await fetchDrivers()
-      toast.success(editing ? 'Driver updated successfully!' : 'Driver created successfully!')
-    } catch (err: any) {
-      console.error('Save driver error:', err)
-      
-      // Extract error details - handle different error formats
-      const errorMessage = err?.message || err?.error?.message || '';
-      const errorCode = err?.code || err?.error?.code || '';
-      
-      // Also check the stringified error for code
-      const errorString = JSON.stringify(err);
-      const hasUserExistsCode = errorString.includes('user_already_exists') || 
-                               errorString.includes('User already registered');
-      
-      // Determine the error message to show
-      let toastMessage = '';
-      if (errorCode === 'user_already_exists' || 
-          errorMessage.includes('User already registered') || 
-          errorMessage.includes('user_already_exists') ||
-          errorMessage.toLowerCase().includes('already registered') ||
-          errorMessage.toLowerCase().includes('already exists') ||
-          hasUserExistsCode) {
-        toastMessage = 'This email address is already registered. Please use a different email.';
-      } else if (err?.code === '23505' || errorCode === '23505') {
-        toastMessage = 'This email address is already registered. Please use a different email.';
-      } else if (errorMessage) {
-        toastMessage = errorMessage;
-      } else {
-        toastMessage = editing ? 'Failed to update driver. Please try again.' : 'Failed to create driver. Please try again.';
-      }
-      
-      // Show toast
-      toast.error(toastMessage);
-    } finally {
-      setSaving(false)
+  } else {
+    const emailCheck = await checkEmailExists(form.email)
+    if (emailCheck.exists) {
+      toast.error(emailCheck.message)
+      return
     }
   }
+
+  setSaving(true)
+
+  try {
+    const currentFranchiseId = typeof window !== 'undefined'
+      ? localStorage.getItem('current_franchise_id')
+      : null
+    const isSuperAdmin = typeof window !== 'undefined'
+      ? localStorage.getItem('is_super_admin') === 'true'
+      : false
+    const currentStaffEmail = typeof window !== 'undefined'
+      ? localStorage.getItem('current_staff_email')
+      : null
+
+    const payload: any = {
+      driver_name: form.driver_name,
+      phone_number: form.phone_number || null,
+      email: form.email || null,
+      vehicle_id: form.vehicle_id?.trim() || '',
+      shift_start: form.shift_start?.length === 5 ? `${form.shift_start}:00` : form.shift_start,
+      shift_end: form.shift_end?.length === 5 ? `${form.shift_end}:00` : form.shift_end,
+      status: editing ? (editing.status || 'Available') : 'Available',
+      role: DRIVER_ROLE,
+      franchise_id: isSuperAdmin ? (form.franchise_id || null) : (currentFranchiseId || null),
+    }
+
+    if (editing) {
+      const { error } = await supabase
+        .from('drivers')
+        .update(payload)
+        .eq('id', editing.id)
+
+      if (error) {
+        if (error.code === '23505') {
+          toast.error('This email address is already registered. Please use a different email.')
+          return
+        }
+        throw error
+      }
+
+    } else {
+      const tempPassword: string = generateTemporaryPassword()
+
+      const insertPayload = {
+        ...payload,
+        password: tempPassword,
+        created_by_email: isSuperAdmin ? null : (currentStaffEmail || null),
+      }
+
+      // ✅ Insert driver
+      const { data: insertedDriverData, error: insertError } = await supabase
+        .from('drivers')
+        .insert([insertPayload])
+        .select()
+        .single()
+
+      if (insertError) {
+        if (insertError.code === '23505') {
+          toast.error('This email address is already registered. Please use a different email.')
+          return
+        }
+        throw insertError
+      }
+
+      // ✅ Auth user — server-side, no session issue, email auto-confirmed
+      fetch("/api/create-auth-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: form.email,
+          password: tempPassword,
+          name: form.driver_name,
+          role: DRIVER_ROLE,
+        }),
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.error) console.error("Auth user error:", d.error)
+          else console.log("✅ Auth user created:", d.userId, d.action)
+        })
+        .catch((e) => console.error("Auth user fetch error:", e))
+
+      // ✅ Welcome email — same /api/send-email
+      fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: form.email,
+          name: form.driver_name,
+          email: form.email,
+          password: tempPassword,
+          role: DRIVER_ROLE,
+          companyName: null,
+          franchiseName: null,
+          deliveryZoneName: null,
+        }),
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.error) console.error('Driver email error:', d.error)
+          else console.log('✅ Driver email sent:', d.id)
+        })
+        .catch((err) => console.error('Driver email fetch error:', err))
+    }
+
+    setOpen(false)
+    await fetchDrivers()
+    toast.success(editing ? 'Driver updated successfully!' : 'Driver created successfully!')
+
+  } catch (err: any) {
+    console.error('Save driver error:', err)
+    const errorMessage = err?.message || err?.error?.message || ''
+    const errorCode = err?.code || err?.error?.code || ''
+    const errorString = JSON.stringify(err)
+
+    if (
+      errorCode === '23505' ||
+      errorCode === 'user_already_exists' ||
+      errorMessage.toLowerCase().includes('already registered') ||
+      errorMessage.toLowerCase().includes('already exists') ||
+      errorString.includes('user_already_exists')
+    ) {
+      toast.error('This email address is already registered. Please use a different email.')
+    } else if (errorMessage) {
+      toast.error(errorMessage)
+    } else {
+      toast.error(editing ? 'Failed to update driver. Please try again.' : 'Failed to create driver. Please try again.')
+    }
+  } finally {
+    setSaving(false)
+  }
+}
 
 
   const handleDeleteClick = (id: number) => {

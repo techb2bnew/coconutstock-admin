@@ -1265,164 +1265,129 @@ export default function CompanyPage() {
   };
 
   // submit
-  const handleCustomerSubmit = async (company: any) => {
-    // ✅ Only run if any customer field filled (otherwise skip)
-    if (!isAnyCustomerFieldFilled()) return;
+const handleCustomerSubmit = async (company: any) => {
+  if (!isAnyCustomerFieldFilled()) return;
+  if (!validateCustomer()) return;
 
-    // ✅ strict validation because some field is filled
-    if (!validateCustomer()) return;
+  if (!company?.id) {
+    toast.error("Company not found. Please create company first.");
+    return;
+  }
 
-    if (!company?.id) {
-      toast.error("Company not found. Please create company first.");
-      return;
-    }
+  setCustomerLoading(true);
 
-    setCustomerLoading(true);
+  const customerEmail = customerForm.customerEmail.trim().toLowerCase();
+  const customerFullName = `${customerForm.customerFirstName.trim()} ${customerForm.customerLastName.trim()}`.trim();
+  const customerPhone = customerForm.customerPhone.replace(/\D/g, "");
+  const tempPassword = generateCustomerPassword();
 
-    // ✅ Save current admin session tokens BEFORE signUp
-    const { data: currentSession } = await supabase.auth.getSession();
-    const savedAccessToken = currentSession?.session?.access_token;
-    const savedRefreshToken = currentSession?.session?.refresh_token;
+  try {
+    const customerPayload = {
+      company_name: company.company_name,
+      first_name: customerForm.customerFirstName.trim(),
+      last_name: customerForm.customerLastName.trim(),
+      email: customerEmail,
+      phone: customerPhone,
+      Customer_title: customerForm.Customer_title,
+      delivery_address: company.address,
+      delivery_zone: company.delivery_zone,
+      delivery_zone_name: company.delivery_zone_name,
+      zoneCity: null,
+      created_by_email: null,
+      alternateEmail1: customerForm.alternateEmail1?.trim() || null,
+      alternateEmail2: customerForm.alternateEmail2?.trim() || null,
+      alternatePhone: null,
+      company_id: company.id,
+      notes: null,
+      password: tempPassword,
+      status: "active",
+      franchise_id: company.franchise_id,
+      account_status: useSameAsMain ? true : false,
+    };
 
-    const customerEmail = customerForm.customerEmail.trim().toLowerCase();
-    const customerFullName =
-      `${customerForm.customerFirstName.trim()} ${customerForm.customerLastName.trim()}`.trim();
-    const customerPhone = customerForm.customerPhone.replace(/\D/g, "");
-    const tempPassword = generateCustomerPassword();
+    // ✅ 1) Insert into customers table
+    const { data: insertedCustomer, error: insertErr } = await supabase
+      .from("customers")
+      .insert(customerPayload)
+      .select("*")
+      .single();
 
-    const loginUrl =
-      typeof window !== "undefined"
-        ? `${window.location.origin}/login`
-        : "http://localhost:3001/login";
+    if (insertErr) throw insertErr;
 
-    try {
-      const customerPayload = {
-        company_name: company.company_name,
-        first_name: customerForm.customerFirstName.trim(),
-        last_name: customerForm.customerLastName.trim(),
+    // ✅ 2) Auth user — server-side, no session issue, email auto-confirmed
+    fetch("/api/create-auth-user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         email: customerEmail,
-        phone: customerPhone,
-        Customer_title: customerForm.Customer_title,
-        delivery_address: company.address,
-        delivery_zone: company.delivery_zone,
-        delivery_zone_name: company.delivery_zone_name,
-
-        zoneCity: null,
-        created_by_email: null,
-        alternateEmail1: customerForm.alternateEmail1?.trim() || null,
-        alternateEmail2: customerForm.alternateEmail2?.trim() || null,
-        alternatePhone: null,
-
-
-        company_id: company.id,
-        notes: null,
         password: tempPassword,
-        status: "active",
-        franchise_id: company.franchise_id,
-        account_status: useSameAsMain ? true : false,
-      };
+        name: customerFullName,
+        role: "Customer",
+      }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) console.error("Auth user error:", d.error)
+        else console.log("✅ Auth user created:", d.userId, d.action)
+      })
+      .catch((e) => console.error("Auth user fetch error:", e))
 
-      // ✅ 1) Insert into customers table
-      const { data: insertedCustomer, error: insertErr } = await supabase
-        .from("customers")
-        .insert(customerPayload)
-        .select("*")
-        .single();
-
-      if (insertErr) throw insertErr;
-
-      // ✅ 2) Auth signUp (non-blocking)
-      try {
-        const { data: authData, error: authErr } = await supabase.auth.signUp({
-          email: customerEmail,
-          password: tempPassword,
-          options: {
-            emailRedirectTo: loginUrl,
-            data: {
-              name: customerFullName,
-              role: "Customer",
-              is_temporary_password: true,
-              company_id: company.id,
-              franchise_id: company.franchise_id,
-            },
-          },
-        });
-
-        if (authErr)
-          console.log("Auth signUp failed/skipped:", authErr.message);
-        else if (authData?.user) console.log("Customer auth created");
-      } catch (e) {
-        console.log("Auth signUp exception:", e);
-      }
-
-      // ✅ CRITICAL: Restore admin session
-      if (savedAccessToken && savedRefreshToken) {
-        try {
-          await supabase.auth.setSession({
-            access_token: savedAccessToken,
-            refresh_token: savedRefreshToken,
-          });
-          console.log("✅ Admin session restored");
-        } catch (restoreErr) {
-          console.error("Session restore error:", restoreErr);
-        }
-      }
-
-      // ✅ 3) Send email (non-blocking)
-      let franchiseName =
-        franchises.find((f) => f.id === company.franchise_id)?.franchise_name ||
-        "";
-      if (!franchiseName && company.franchise_id) {
-        const { data: f } = await supabase
-          .from("franchises")
-          .select("franchise_name")
-          .eq("id", company.franchise_id)
-          .maybeSingle();
-        franchiseName = f?.franchise_name || "";
-      }
-      supabase.functions
-        .invoke("clever-handler", {
-          body: {
-            to: customerEmail,
-            name: customerFullName,
-            email: customerEmail,
-            password: tempPassword,
-            role: "Customer",
-            loginUrl,
-            companyName: company.company_name,
-            franchiseName: franchiseName || null,
-            deliveryZoneName: company.delivery_zone_name || null,
-          },
-        })
-        .then(({ error: fnErr }) => {
-          if (fnErr) console.log("Email function error:", fnErr.message);
-          else console.log("✅ Email sent");
-        })
-        .catch((err) => console.log("Email invoke error:", err));
-
-      toast.success("Customer created successfully!");
-
-      // reset customer form
-      setCustomerForm({
-        customerFirstName: "",
-        customerLastName: "",
-        customerEmail: "",
-        customerPhone: "",
-        Customer_title: "",
-        alternateEmail1: "",
-        alternateEmail2: "",
-      });
-      setCustomerErrors({});
-
-      console.log("✅ Inserted customer:", insertedCustomer);
-    } catch (err: any) {
-      console.error(err);
-      if (err?.code === "23505") toast.error("Email already exists");
-      else toast.error("Failed to add customer");
-    } finally {
-      setCustomerLoading(false);
+    // ✅ 3) Franchise name fetch
+    let franchiseName =
+      franchises.find((f) => f.id === company.franchise_id)?.franchise_name || "";
+    if (!franchiseName && company.franchise_id) {
+      const { data: f } = await supabase
+        .from("franchises")
+        .select("franchise_name")
+        .eq("id", company.franchise_id)
+        .maybeSingle();
+      franchiseName = f?.franchise_name || "";
     }
-  };
+
+    // ✅ 4) Welcome email — same /api/send-email
+    fetch('/api/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: customerEmail,
+        name: customerFullName,
+        email: customerEmail,
+        password: tempPassword,
+        role: "Customer",
+        companyName: company.company_name,
+        franchiseName: franchiseName || null,
+        deliveryZoneName: company.delivery_zone_name || null,
+      }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) console.error('Customer email error:', d.error)
+        else console.log('✅ Customer email sent:', d.id)
+      })
+      .catch((err) => console.error('Customer email fetch error:', err))
+
+    toast.success("Customer created successfully!");
+
+    setCustomerForm({
+      customerFirstName: "",
+      customerLastName: "",
+      customerEmail: "",
+      customerPhone: "",
+      Customer_title: "",
+      alternateEmail1: "",
+      alternateEmail2: "",
+    });
+    setCustomerErrors({});
+
+    console.log("✅ Inserted customer:", insertedCustomer);
+  } catch (err: any) {
+    console.error(err);
+    if (err?.code === "23505") toast.error("Email already exists");
+    else toast.error("Failed to add customer");
+  } finally {
+    setCustomerLoading(false);
+  }
+};
 
   return (
     <div className="p-6 space-y-6">

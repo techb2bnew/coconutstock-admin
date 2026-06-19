@@ -79,81 +79,52 @@ export default function OtpPage() {
     return true
   }
 
-  const handleVerifyOtp = async () => {
-    if (!validateForm() || !email) return
+ const handleVerifyOtp = async () => {
+  if (!validateForm() || !email) return
 
-    setIsLoading(true)
-    setError(null)
-    setSuccessMessage(null)
+  setIsLoading(true)
+  setError(null)
+  setSuccessMessage(null)
 
-    try {
-      const { data, error } = await supabase.auth.verifyOtp({
-        email,
-        token: otp.join(''),
-        type: 'email',
-      })
+  try {
+    // ✅ Apna API call — same /api/send-otp PUT
+    const res = await fetch('/api/send-otp', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, otp: otp.join('') }),
+    })
 
-      if (error) {
-        setError(error.message)
-        setIsLoading(false)
-        return
-      }
+    const data = await res.json()
 
-      // Verify that OTP verification was successful and session was created
-      if (!data || !data.session) {
-        setError('OTP verification failed. Please try again.')
-        setIsLoading(false)
-        return
-      }
-
-      // Verify session is properly established
-      // Wait a moment for session to be fully set in Supabase
-      await new Promise(resolve => setTimeout(resolve, 100))
-      
-      // Double-check session is available
-      const { data: { session: verifySession } } = await supabase.auth.getSession()
-      if (!verifySession) {
-        setError('Session not established. Please try again.')
-        setIsLoading(false)
-        return
-      }
-
-      // Set OTP verification flag for security - ensure it's set before redirect
-      if (typeof window !== 'undefined') {
-        sessionStorage.setItem('otp_verified', 'true')
-        // Store timestamp for expiration check (15 minutes validity)
-        sessionStorage.setItem('otp_verified_timestamp', Date.now().toString())
-        // Also store email for reset-password page
-        sessionStorage.setItem('reset_password_email', email)
-        // Clear any previous password reset used flag
-        sessionStorage.removeItem('password_reset_used')
-        
-        // Verify sessionStorage was set
-        const verifyFlag = sessionStorage.getItem('otp_verified')
-        if (verifyFlag !== 'true') {
-          setError('Failed to set verification flag. Please try again.')
-          setIsLoading(false)
-          return
-        }
-      }
-
-      setSuccessMessage('OTP verified successfully! Redirecting...')
-      // Use a small delay to ensure everything is persisted
-      setTimeout(() => {
-        // Use window.location as fallback if router doesn't work
-        try {
-          router.replace('/reset-password')
-        } catch (err) {
-          console.error('Router redirect failed, using window.location:', err)
-          window.location.href = '/reset-password'
-        }
-      }, 500)
-    } catch (err: any) {
-      console.error('OTP verification error:', err)
-      setError(err?.message || 'Something went wrong. Please try again.')
+    if (!res.ok) {
+      setError(data.error || 'Invalid OTP. Please try again.')
       setIsLoading(false)
+      return
     }
+
+    // ✅ OTP valid — sessionStorage set karo
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('otp_verified', 'true')
+      sessionStorage.setItem('otp_verified_timestamp', Date.now().toString())
+      sessionStorage.setItem('reset_password_email', email)
+      sessionStorage.removeItem('password_reset_used')
+    }
+
+    setSuccessMessage('OTP verified successfully! Redirecting...')
+    setTimeout(() => {
+      try {
+        router.replace('/reset-password')
+      } catch (err) {
+        window.location.href = '/reset-password'
+      }
+    }, 500)
+
+  } catch (err: any) {
+    console.error('OTP verification error:', err)
+    setError(err?.message || 'Something went wrong. Please try again.')
+    setIsLoading(false)
   }
+}
 
   // Retry function with exponential backoff for resend
   const resendOTPWithRetry = async (retries = 2, delay = 1000): Promise<any> => {

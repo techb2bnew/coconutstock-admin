@@ -348,258 +348,152 @@ export default function StaffManagementPage() {
     return { exists: false, message: '' }
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    if (!validateForm()) {
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault()
+
+  if (!validateForm()) return
+
+  if (editingStaff) {
+    const emailCheck = await checkEmailExists(formData.email, editingStaff.id)
+    if (emailCheck.exists) {
+      toast.error(emailCheck.message)
       return
     }
-    
-    // Check if email already exists
-    if (editingStaff) {
-      // For edit, check if email exists in other records
-      const emailCheck = await checkEmailExists(formData.email, editingStaff.id)
-      if (emailCheck.exists) {
-        toast.error(emailCheck.message)
-        return
-      }
-    } else {
-      // For new staff, check if email exists in any table
-      const emailCheck = await checkEmailExists(formData.email)
-      if (emailCheck.exists) {
-        toast.error(emailCheck.message)
-        return
-      }
-    }
-    
-    setLoading(true)
-
-    try {
-      if (editingStaff) {
-        // Update existing staff
-        const tempPassword: string = generateTemporaryPassword()
-        
-        // Always read from localStorage (source of truth set by AdminLayout)
-        const isSuperAdmin = typeof window !== 'undefined' 
-          ? localStorage.getItem('is_super_admin') === 'true'
-          : false
-        const currentFranchiseId = typeof window !== 'undefined' 
-          ? localStorage.getItem('current_franchise_id') 
-          : null
-
-        const { error } = await supabase
-          .from('staff')
-          .update({
-            name: formData.name,
-            email: formData.email,
-            role: formData.role,
-            hire_date: formData.hire_date || null,
-            password: tempPassword, 
-            franchise_id: isSuperAdmin ? null : (currentFranchiseId || null),
-
-          })
-          .eq('id', editingStaff.id)
-
-        if (error) {
-          console.error('Update error:', error)
-          
-          // Check for duplicate email error
-          if (error.code === '23505') {
-            toast.error('This email address is already registered. Please use a different email.')
-            setLoading(false)
-            return
-          }
-          
-          toast.error(error.message || 'Failed to update staff member. Please try again.')
-        } else {
-          toast.success('Staff member updated successfully!')
-        }
-      } else {
-        // Save current session tokens to restore after signUp
-        const { data: currentSession } = await supabase.auth.getSession()
-        const savedAccessToken = currentSession?.session?.access_token
-        const savedRefreshToken = currentSession?.session?.refresh_token
-        
-        // Also save localStorage values before signUp
-        const savedIsSuperAdmin = typeof window !== 'undefined' 
-          ? localStorage.getItem('is_super_admin')
-          : null
-        const savedCurrentStaffEmail = typeof window !== 'undefined' 
-          ? localStorage.getItem('current_staff_email')
-          : null
-        const savedCurrentFranchiseId = typeof window !== 'undefined' 
-          ? localStorage.getItem('current_franchise_id')
-          : null
-        
-        // Create new staff member with temporary password
-        const tempPassword: string = generateTemporaryPassword()
-        
-        // Always read from localStorage (source of truth set by AdminLayout)
-        const isSuperAdmin = typeof window !== 'undefined' 
-          ? localStorage.getItem('is_super_admin') === 'true'
-          : false
-        const currentFranchiseId = typeof window !== 'undefined' 
-          ? localStorage.getItem('current_franchise_id') 
-          : null
-        const currentStaffEmail = typeof window !== 'undefined' 
-          ? localStorage.getItem('current_staff_email') 
-          : null
-        
-        // First, insert into staff table
-        const { data: staffData, error: staffError } = await supabase
-          .from('staff')
-          .insert([{ 
-            name: formData.name,
-            email: formData.email,
-            password: tempPassword,
-            role: formData.role,
-            hire_date: formData.hire_date || null,
-            status: 'Active',
-            franchise_id: isSuperAdmin ? null : (currentFranchiseId || null),
-            created_by_email: isSuperAdmin ? null : (currentStaffEmail || null),
-          }])
-          .select()
-          .single()
-
-        if (staffError) {
-          console.error('Staff insert error:', staffError)
-          
-          // Check for duplicate email error
-          if (staffError.code === '23505') {
-            toast.error('This email address is already registered. Please use a different email.')
-            setLoading(false)
-            return
-          }
-          
-          // Show generic error
-          toast.error(staffError.message || 'Failed to create staff member. Please try again.')
-          setLoading(false)
-          return
-        }
-
-        // Try to create auth account (non-blocking, staff record already created)
-        const loginUrl = `${window.location.origin}/login`
-        
-        try {
-          const { data: authData, error: authError } = await supabase.auth.signUp({
-            email: formData.email,
-            password: tempPassword,
-            options: {
-              emailRedirectTo: loginUrl,
-              data: {
-                name: formData.name,
-                role: formData.role,
-                is_temporary_password: true
-              }
-            }
-          })
-          
-          if (authError) {
-            console.log('Auth account creation skipped (may already exist or failed):', authError.message)
-            
-            // Check for user already exists error
-            const errorMessage = authError.message || '';
-            const errorCode = (authError as any).code || '';
-            const errorString = JSON.stringify(authError);
-            const hasUserExistsCode = errorString.includes('user_already_exists') || 
-                                     errorString.includes('User already registered');
-            
-            // Only show toast if it's a user already exists error (not just a general auth error)
-            if (errorCode === 'user_already_exists' || 
-                errorMessage.includes('User already registered') || 
-                errorMessage.includes('user_already_exists') ||
-                errorMessage.toLowerCase().includes('already registered') ||
-                errorMessage.toLowerCase().includes('already exists') ||
-                hasUserExistsCode) {
-              toast.error('This email address is already registered. Please use a different email.')
-            }
-          } else if (authData.user) {
-            console.log('Staff auth account created successfully')
-          }
-        } catch (authErr) {
-          console.error('Auth creation error:', authErr)
-        }
-        
-        // CRITICAL: Immediately restore the admin's session and localStorage values
-        if (savedAccessToken && savedRefreshToken) {
-          try {
-            await supabase.auth.setSession({
-              access_token: savedAccessToken,
-              refresh_token: savedRefreshToken,
-            })
-            console.log('Admin session restored successfully')
-          } catch (restoreErr) {
-            console.error('Session restore error:', restoreErr)
-            // If restore fails, try to get session again
-            const { data: newSession } = await supabase.auth.getSession()
-            if (!newSession?.session && savedAccessToken && savedRefreshToken) {
-              // Last attempt to restore
-              await supabase.auth.setSession({
-                access_token: savedAccessToken,
-                refresh_token: savedRefreshToken,
-              })
-            }
-          }
-        }
-        
-        // Restore localStorage values
-        if (typeof window !== 'undefined') {
-          if (savedIsSuperAdmin !== null) {
-            localStorage.setItem('is_super_admin', savedIsSuperAdmin)
-          }
-          if (savedCurrentStaffEmail !== null) {
-            localStorage.setItem('current_staff_email', savedCurrentStaffEmail)
-          }
-          if (savedCurrentFranchiseId !== null) {
-            localStorage.setItem('current_franchise_id', savedCurrentFranchiseId)
-          }
-        }
-        
-        // Send welcome email (non-blocking)
-        supabase.functions.invoke('clever-handler', {
-          body: {
-            to: formData.email,
-            name: formData.name,
-            email: formData.email,
-            password: tempPassword,
-            role: formData.role,
-            loginUrl: loginUrl,
-            hireDate: formData.hire_date || null
-          }
-        }).then(({ error: emailError }) => {
-          if (emailError) {
-            console.log('Email function not available (this is okay):', emailError.message)
-          } else {
-            console.log('Email sent successfully')
-          }
-        }).catch((err) => {
-          console.log('Email function not configured (this is okay):', err)
-        })
-        
-        // Show success message
-        toast.success('Staff member created successfully!')
-      }
-    } catch (error: any) {
-      console.error('Unexpected error:', error)
-      
-      // Extract error details
-      const errorMessage = error?.message || error?.error?.message || '';
-      const errorCode = error?.code || error?.error?.code || '';
-      
-      // Check for duplicate email error
-      if (errorCode === '23505' || errorMessage.includes('duplicate key') || errorMessage.includes('already exists')) {
-        toast.error('This email address is already registered. Please use a different email.')
-      } else if (errorMessage) {
-        toast.error(errorMessage)
-      } else {
-        toast.error('An unexpected error occurred. Please try again.')
-      }
-    } finally {
-      setLoading(false)
-      setModalOpen(false)
-      fetchStaff()
+  } else {
+    const emailCheck = await checkEmailExists(formData.email)
+    if (emailCheck.exists) {
+      toast.error(emailCheck.message)
+      return
     }
   }
+
+  setLoading(true)
+
+  try {
+    const isSuperAdmin = typeof window !== 'undefined'
+      ? localStorage.getItem('is_super_admin') === 'true'
+      : false
+    const currentFranchiseId = typeof window !== 'undefined'
+      ? localStorage.getItem('current_franchise_id')
+      : null
+    const currentStaffEmail = typeof window !== 'undefined'
+      ? localStorage.getItem('current_staff_email')
+      : null
+
+    if (editingStaff) {
+      const tempPassword: string = generateTemporaryPassword()
+
+      const { error } = await supabase
+        .from('staff')
+        .update({
+          name: formData.name,
+          email: formData.email,
+          role: formData.role,
+          hire_date: formData.hire_date || null,
+          password: tempPassword,
+          franchise_id: isSuperAdmin ? null : (currentFranchiseId || null),
+        })
+        .eq('id', editingStaff.id)
+
+      if (error) {
+        console.error('Update error:', error)
+        if (error.code === '23505') {
+          toast.error('This email address is already registered. Please use a different email.')
+          return
+        }
+        toast.error(error.message || 'Failed to update staff member. Please try again.')
+      } else {
+        toast.success('Staff member updated successfully!')
+      }
+
+    } else {
+      const tempPassword: string = generateTemporaryPassword()
+
+      // ✅ Insert staff
+      const { data: staffData, error: staffError } = await supabase
+        .from('staff')
+        .insert([{
+          name: formData.name,
+          email: formData.email,
+          password: tempPassword,
+          role: formData.role,
+          hire_date: formData.hire_date || null,
+          status: 'Active',
+          franchise_id: isSuperAdmin ? null : (currentFranchiseId || null),
+          created_by_email: isSuperAdmin ? null : (currentStaffEmail || null),
+        }])
+        .select()
+        .single()
+
+      if (staffError) {
+        console.error('Staff insert error:', staffError)
+        if (staffError.code === '23505') {
+          toast.error('This email address is already registered. Please use a different email.')
+          return
+        }
+        toast.error(staffError.message || 'Failed to create staff member. Please try again.')
+        return
+      }
+
+      // ✅ Auth user — server-side, no session issue, email auto-confirmed
+      fetch("/api/create-auth-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: formData.email,
+          password: tempPassword,
+          name: formData.name,
+          role: formData.role,
+        }),
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.error) console.error("Auth user error:", d.error)
+          else console.log("✅ Auth user created:", d.userId, d.action)
+        })
+        .catch((e) => console.error("Auth user fetch error:", e))
+
+      // ✅ Welcome email — same /api/send-email
+      fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: formData.email,
+          name: formData.name,
+          email: formData.email,
+          password: tempPassword,
+          role: formData.role,
+          companyName: null,
+          franchiseName: null,
+          deliveryZoneName: null,
+        }),
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.error) console.error('Staff email error:', d.error)
+          else console.log('✅ Staff email sent:', d.id)
+        })
+        .catch((err) => console.error('Staff email fetch error:', err))
+
+      toast.success('Staff member created successfully!')
+    }
+  } catch (error: any) {
+    console.error('Unexpected error:', error)
+    const errorMessage = error?.message || error?.error?.message || ''
+    const errorCode = error?.code || error?.error?.code || ''
+    if (errorCode === '23505' || errorMessage.includes('duplicate key') || errorMessage.includes('already exists')) {
+      toast.error('This email address is already registered. Please use a different email.')
+    } else if (errorMessage) {
+      toast.error(errorMessage)
+    } else {
+      toast.error('An unexpected error occurred. Please try again.')
+    }
+  } finally {
+    setLoading(false)
+    setModalOpen(false)
+    fetchStaff()
+  }
+}
 
   const handleDeleteClick = (id: number) => {
     setStaffToDelete(id)

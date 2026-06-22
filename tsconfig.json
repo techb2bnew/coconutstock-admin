@@ -28,7 +28,12 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
-    "**/*.mts"
-, "postcss.config.js", "tailwind.config.js"  ],
-  "exclude": ["node_modules"]
+    "**/*.mts",
+    "postcss.config.js",
+    "tailwind.config.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "supabase/functions/**/*"
+  ]
 }

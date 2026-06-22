@@ -235,7 +235,7 @@ export function OrderForm({ mode, orderId, initialData }: OrderFormProps) {
                     .select('delivery_address, franchise_id, company_name')
                     .eq('id', order.customer_id)
                     .single();
-                
+                    console.log('Customer data:', customerData)
                 if (customerData?.delivery_address) {
                     parseCustomerAddresses(customerData.delivery_address);
                 }
@@ -504,26 +504,31 @@ export function OrderForm({ mode, orderId, initialData }: OrderFormProps) {
 
     // --- Send FCM notification via Supabase Edge Function ---
     const sendFCMNotification = async (tokens: string[], title: string, message: string) => {
-        try {
-            const { data, error } = await supabase.functions.invoke('send-fcm-notification', {
-                body: JSON.stringify({
-                    tokens,
-                    title,
-                    message,
-                }),
-            });
-
-            if (error) {
-                console.error('Error sending FCM notification:', error);
-                return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-            }
-
-            return { success: true, data };
-        } catch (error) {
-            console.error('Error sending FCM notification:', error);
-            return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    try {
+        if (!tokens || tokens.length === 0) {
+            return { success: false, error: 'No tokens provided' }
         }
-    };
+
+        const res = await fetch('/api/fcm/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tokens, title, message }),
+        })
+
+        const result = await res.json()
+
+        if (!res.ok) {
+            console.error('FCM API error:', result.error)
+            return { success: false, error: result.error || 'Failed to send notification' }
+        }
+
+        console.log(`✅ FCM sent: ${result.successCount} success, ${result.failureCount} failed`)
+        return { success: true, data: result }
+    } catch (error) {
+        console.error('Error sending FCM notification:', error)
+        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+};
 
     // --- Send notification to driver and customer when order status changes ---
     const sendStatusChangeNotification = async (order: any, newStatus: string) => {

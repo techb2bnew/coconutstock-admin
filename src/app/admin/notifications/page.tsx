@@ -406,86 +406,54 @@ export default function NotificationsPage() {
   // Using Next.js API route with Firebase Admin SDK (V1 API)
   // Service Account JSON is configured in .env.local
   const sendFCMNotification = async (tokens: string[], title: string, message: string) => {
-    try { 
-      
-      if (!tokens || tokens.length === 0) {
-        console.warn('⚠️ No FCM tokens found. Push notifications will not be sent.')
-        console.warn('Make sure customers have logged in via mobile app and FCM tokens are stored in database.')
-        toast.error('No FCM tokens found', {
-          description: 'Make sure customers have logged in via mobile app.'
-        })
-        return { success: false, error: 'No FCM tokens found' }
-      }
-
-      // Filter out null/undefined/empty tokens
-      const validTokens = tokens.filter(token => token && token.trim() !== '')
-
-      if (validTokens.length === 0) {
-        console.warn('⚠️ No valid FCM tokens found. Push notifications will not be sent.')
-        toast.error('No valid FCM tokens found', {
-          description: 'Make sure customers have valid FCM tokens in database.'
-        })
-        return { success: false, error: 'No valid FCM tokens found' }
-      }
-
-      console.log(`✅ Sending FCM notification to ${validTokens.length} device(s) via Supabase Edge Function`)
-
-      // Call Supabase Edge Function (uses FCM REST API V1 - same as scheduled notifications)
-      const { data: result, error: functionError } = await supabase.functions.invoke('send-fcm-notification', {
-        body: {
-          tokens: validTokens,
-          title: title,
-          message: message,
-        },
+  try {
+    if (!tokens || tokens.length === 0) {
+      toast.error('No FCM tokens found', {
+        description: 'Make sure customers have logged in via mobile app.'
       })
-
-      if (functionError) {
-        console.error('❌ FCM Edge Function Error:', functionError)
-        throw new Error(functionError.message || 'Failed to send FCM notification')
-      }
-
-      if (!result || !result.success) {
-        const errorMsg = result?.error || 'Unknown error occurred'
-        console.error('❌ FCM Edge Function returned error:', errorMsg)
-        throw new Error(errorMsg)
-      }
-
-      console.log('✅ FCM Notification Response:', result)
-      
-      // Note: Edge Function automatically removes invalid tokens from database
-      if (result.invalidTokens && result.invalidTokens.length > 0) {
-        console.log(`🗑️ Edge Function removed ${result.invalidTokens.length} invalid FCM token(s) from database`)
-      }
-      
-      // Check for failures (Edge Function returns successCount, failureCount, invalidTokens)
-      if (result.failureCount > 0) {
-        console.warn(`⚠️ ${result.failureCount} notification(s) failed out of ${validTokens.length}`)
-        
-        // Show user-friendly message
-        if (result.invalidTokens && result.invalidTokens.length > 0) {
-          toast.warning(`${result.invalidTokens.length} customer(s) have invalid FCM tokens`, {
-            description: 'Please ask them to login again via mobile app to refresh their token.'
-          })
-        } else {
-          toast.warning(`${result.failureCount} notification(s) failed`, {
-            description: 'Some notifications could not be delivered.'
-          })
-        }
-      }
-      
-      if (result.successCount > 0) {
-        console.log(`✅ Successfully sent to ${result.successCount} device(s)`)
-      }
-      
-      return { success: true, result }
-    } catch (error) {
-      console.error('❌ Error sending FCM notification:', error)
-      toast.error('Error sending FCM notification', {
-        description: error instanceof Error ? error.message : 'Unknown error'
-      })
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+      return { success: false, error: 'No FCM tokens found' }
     }
+
+    const validTokens = tokens.filter(token => token && token.trim() !== '')
+    if (validTokens.length === 0) {
+      toast.error('No valid FCM tokens found')
+      return { success: false, error: 'No valid FCM tokens found' }
+    }
+
+    // ✅ Edge Function ki jagah Next.js API route
+    const res = await fetch('/api/fcm/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tokens: validTokens, title, message }),
+    })
+
+    const result = await res.json()
+
+    if (!res.ok) {
+      throw new Error(result.error || 'Failed to send FCM notification')
+    }
+
+    if (result.invalidTokens?.length > 0) {
+      toast.warning(`${result.invalidTokens.length} invalid FCM token(s) removed`)
+    }
+
+    if (result.failureCount > 0) {
+      toast.warning(`${result.failureCount} notification(s) failed`)
+    }
+
+    if (result.successCount > 0) {
+      console.log(`✅ Successfully sent to ${result.successCount} device(s)`)
+    }
+
+    return { success: true, result }
+  } catch (error) {
+    console.error('❌ Error sending FCM notification:', error)
+    toast.error('Error sending FCM notification', {
+      description: error instanceof Error ? error.message : 'Unknown error'
+    })
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
   }
+}
 
   // Helper function to fetch FCM tokens based on recipient type
   const fetchFCMTokens = async (recipientType: string, selectedCustomerIds?: string[]) => {

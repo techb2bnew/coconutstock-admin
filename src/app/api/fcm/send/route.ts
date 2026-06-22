@@ -11,6 +11,11 @@ function initializeFirebaseAdmin() {
 
   try {
     const serviceAccountJson = process.env.NEXT_PUBLIC_FCM_SERVICE_ACCOUNT_JSON
+     console.log('ENV found:', !!serviceAccountJson)
+    const parsed = JSON.parse(serviceAccountJson!)
+    console.log('project_id:', parsed.project_id)
+    console.log('client_email:', parsed.client_email)
+    console.log('private_key starts:', parsed.private_key?.substring(0, 50))
     
     if (!serviceAccountJson) {
       throw new Error('NEXT_PUBLIC_FCM_SERVICE_ACCOUNT_JSON not configured')
